@@ -1,0 +1,561 @@
+# this is some old code and might be inefficient
+
+import pygame
+from pygame.locals import *
+import random
+import sys
+import time
+
+pygame.init()
+clock = pygame.time.Clock()
+fps = 60
+
+score = 0
+countdown = 3
+last_count = 0
+game_over = 0
+energy_dis = energy = 0.01
+cooldown = 400
+menu = False
+
+screen_width = 1280
+screen_height = 720
+p_y = screen_height / 2
+
+screen = pygame.display.set_mode((screen_width, screen_height))
+pygame.display.set_caption('Space Shooter')
+bg = pygame.image.load('img/space_bg.jpg')
+font40 = pygame.font.SysFont('Constantia', 40)
+colour = (0,0,0)
+
+border = 40
+red = (255, 0, 0)
+green = (0, 255, 0)
+bot = False
+
+create_new_enemy = True
+
+try:
+    with open('space_shooter.txt', 'r') as file:
+        high_read = file.readlines()
+        high_score = int(high_read[0])
+except:
+    with open('space_shooter.txt', 'w') as file:
+        file.write(str(0))
+finally:
+    with open('space_shooter.txt', 'r') as file:
+        high_read = file.readlines()
+        high_score = int(high_read[0])
+
+def high_score_cal(score:int):
+    global high_score
+    if score > high_score:
+        high_score = score
+        with open('space_shooter.txt', 'w') as file:
+            file.write(str(score))
+
+
+class Spaceship(pygame.sprite.Sprite):
+    def __init__(self, p_x, p_y, health):
+        pygame.sprite.Sprite.__init__(self)
+        self.image = pygame.image.load('img/Player Ship.png').convert_alpha()
+        self.rect = self.image.get_rect()
+        self.rect.center = [p_x, p_y]
+        self.health_start = health
+        self.health_remaining = health
+        self.last_shot = pygame.time.get_ticks()
+
+    def update(self):
+        global cooldown
+        global energy
+        speed = 10
+        key = pygame.key.get_pressed()
+        if key[pygame.K_a] and self.rect.left > border:
+            self.rect.x -= speed
+        if key[pygame.K_d] and self.rect.right < screen_width - border:
+            self.rect.x += speed
+        if key[pygame.K_w] and self.rect.top > border:
+            self.rect.y -= speed
+        if key[pygame.K_s] and self.rect.bottom < screen_height - border:
+            self.rect.y += speed
+
+        time_now = pygame.time.get_ticks()
+
+        if key[pygame.K_SPACE] and time_now - self.last_shot > cooldown:
+            bullet = Bullets(self.rect.centerx, self.rect.top)
+            bullet_group.add(bullet)
+            self.last_shot = time_now
+
+        if self.health_remaining > 0:
+            pygame.draw.rect(screen, red, (self.rect.x - 30, self.rect.y, 20, self.rect.height))
+            pygame.draw.rect(screen, green, (self.rect.x - 30, self.rect.y, 20, int(self.rect.height * (self.health_remaining / self.health_start))))
+        elif self.health_remaining <= 0:
+            self.kill()
+            global game_over
+            game_over = True
+
+        self.mask = pygame.mask.from_surface(self.image)
+
+        if bot:
+            if enemy.e_y - 10 < self.rect.y < enemy.e_y + 10:
+                speed = 3
+            else:
+                speed = 10
+            if self.rect.y + 500 >= enemy.e_y or self.rect.y - 500 <= enemy.e_y:
+                if self.rect.y > enemy.e_y:
+                    self.rect.y -= speed
+                elif self.rect.y < enemy.e_y:
+                    self.rect.y += speed
+                if enemy.rect.y - 70 < self.rect.y < enemy.rect.y + 70 and time_now - self.last_shot > cooldown:
+                    bullet = Bullets(self.rect.centerx, self.rect.top)
+                    bullet_group.add(bullet)
+                    self.last_shot = time_now
+                if energy >= 50:
+                    energy = 0
+                    cooldown = 0
+
+
+class Bullets(pygame.sprite.Sprite):
+    def __init__(self, p_x, p_y):
+        pygame.sprite.Sprite.__init__(self)
+        self.image = pygame.image.load('img/laser (1).png').convert_alpha()
+        self.rect = self.image.get_rect()
+        self.rect.center = [p_x + 30, p_y + 50]
+
+    def update(self):
+        global create_new_enemy
+        global score
+        global energy
+        global cooldown
+        self.rect.x += 20
+        if self.rect.right > 1280:
+            self.kill()
+        if pygame.sprite.spritecollide(self, enemy_group, False, pygame.sprite.collide_mask):
+            enemy.health_remaining -= 1
+            score += 1
+            if cooldown != 0:
+                energy += 1
+                self.kill()
+            if enemy.health_remaining <= 0:
+                create_new_enemy = True
+        if pygame.sprite.spritecollide(self, enemy_bullet_group, True, pygame.sprite.collide_mask):
+            self.kill()
+        self.mask = pygame.mask.from_surface(self.image)
+
+
+class enemy_Bullets(pygame.sprite.Sprite):
+    def __init__(self, p_x, p_y):
+        pygame.sprite.Sprite.__init__(self)
+        self.image = pygame.image.load('img/laser (1).png').convert_alpha()
+        self.rect = self.image.get_rect()
+        self.rect.center = [p_x - 20, p_y + 100]
+
+    def update(self):
+        self.rect.x -= 20
+        if self.rect.left < 0:
+            self.kill()
+        if pygame.sprite.spritecollide(self, spaceship_group, False, pygame.sprite.collide_mask):
+            spaceship.health_remaining -= 1
+            self.kill()
+        if pygame.sprite.spritecollide(self, bullet_group, True, pygame.sprite.collide_mask):
+            self.kill()
+        self.mask = pygame.mask.from_surface(self.image)
+
+
+class Enemy(pygame.sprite.Sprite):
+    def __init__(self, e_x, e_y, e_type, health):
+        pygame.sprite.Sprite.__init__(self)
+        self.image = pygame.image.load('img/enemy ship.png').convert_alpha()
+        self.rect = self.image.get_rect()
+        self.rect.center = [e_x, e_y + 39]
+        self.e_type = e_type
+        self.e_x = e_x
+        self.e_y = e_y
+        self.last_shot = pygame.time.get_ticks()
+        self.health_start = health
+        self.health_remaining = health
+
+    def update(self):
+        global create_new_enemy
+        global score
+
+        if self.e_type == 2:
+            self.rect.x -= 2
+        if self.e_type == 3:
+            self.rect.x += 3
+            time_now = pygame.time.get_ticks()
+            cooldown = 1000
+            if time_now - self.last_shot > cooldown:
+                enemy_bullet = enemy_Bullets(self.rect.centerx, self.rect.top)
+                enemy_bullet_group.add(enemy_bullet)
+                self.last_shot = time_now
+        if self.e_type == 4:
+            self.rect.x += 4
+            if self.health_remaining > 0:
+                pygame.draw.rect(screen, red, (self.rect.x + 140, self.rect.y + 45, 20, self.rect.height - 90))
+                pygame.draw.rect(screen, green, (self.rect.x + 140, self.rect.y + 45, 20, int((self.rect.height - 90) * (self.health_remaining / self.health_start))))
+            elif self.health_remaining <= 0:
+                self.kill()
+        if self.e_type == 5:
+            if spaceship.rect.y < self.rect.y and self.rect.x < 500:
+                self.rect.y -= 2
+            elif spaceship.rect.y > self.rect.y and self.rect.x < 500:
+                self.rect.y += 2
+            self.rect.x -= 3
+
+        self.rect.x -= 10
+        if score >= 50:
+            self.rect.x -= 0.5
+        if score >= 100:
+            self.rect.x -= 0.5
+        if score >= 150:
+            self.rect.x -= 0.5
+        if score >= 200:
+            self.rect.x -= 0.5
+        if score >= 250:
+            self.rect.x -= 0.5
+        if score >= 300:
+            self.rect.x -= 0.5
+        if score >= 350:
+            self.rect.x -= 0.5
+        if score >= 400:
+            self.rect.x -= 0.5
+        if score >= 450:
+            self.rect.x -= 0.5
+        if score >= 500:
+            self.rect.x -= 0.5
+        if score >= 550:
+            self.rect.x -= 1
+        if score >= 600:
+            self.rect.x -= 1
+        if score >= 650:
+            self.rect.x -= 1
+        if score >= 700:
+            self.rect.x -= 1
+        if score >= 750:
+            self.rect.x -= 1
+        if score >= 800:
+            self.rect.x -= 1
+        if score >= 850:
+            self.rect.x -= 0.5
+        if score >= 900:
+            self.rect.x -= 0.5
+        if score >= 950:
+            self.rect.x -= 0.5
+        if score >= 1000:
+            self.rect.x -= 0.5
+        if score >= 1100:
+            self.rect.x -= 1
+        if score >= 1200:
+            self.rect.x -= 1
+        if score >= 1300:
+            self.rect.x -= 1
+        if score >= 1400:
+            self.rect.x -= 1
+        if score >= 1500:
+            self.rect.x -= 1
+
+
+
+        if self.rect.left < -80:
+            self.kill()
+            create_new_enemy = True
+        if pygame.sprite.spritecollide(self, spaceship_group, False, pygame.sprite.collide_mask):
+            spaceship.health_remaining -= self.health_remaining
+            self.kill()
+            create_new_enemy = True
+        if self.health_remaining <= 0:
+            self.kill()
+            self.mask = pygame.mask.from_surface(self.image)
+
+
+def energy_bar():
+    global cooldown
+    global energy
+    global energy_dis
+    if cooldown != 0:
+        energy_dis = energy
+    full_energy_bar = pygame.draw.rect(screen, 'Red', (screen_width - 600, screen_height - 100, 500, 50))
+    if energy < 50:
+        current_energy_bar = pygame.draw.rect(screen, 'Green', (screen_width - 600, screen_height - 100, int(500 * (energy_dis / 50)), 50))
+    elif energy >= 50:
+        current_energy_bar = pygame.draw.rect(screen, 'Blue', (screen_width - 600, screen_height - 100, 500, 50))
+        draw_text("Press F to activate", font40, 'White', screen_width - 495, screen_height - 93)
+    key = pygame.key.get_pressed()
+    if key[pygame.K_f]:
+            if energy >= 50:
+                energy = 0
+                cooldown = 0
+    if cooldown == 0:
+        energy_dis -= 0.1
+        if energy_dis <= 0:
+            cooldown = 400
+
+
+def draw_text(text, font, text_col, x, y):
+    img = font.render(text, True, text_col)
+    screen.blit(img, (x, y))
+
+class ui(pygame.sprite.Sprite):
+    def __init__(self, image, x, y):
+        pygame.sprite.Sprite.__init__(self)
+        self.image = pygame.image.load(image)
+        self.rect = self.image.get_rect()
+        self.rect.center = [x, y]
+
+    def update(self):
+        screen.blit(self.image, self.rect.center)
+        pos = pygame.mouse.get_pos()
+        collide = self.rect.collidepoint(pos)
+        for event in pygame.event.get():
+            if event.type == MOUSEBUTTONDOWN and collide:
+                global menu
+                menu = True
+
+class Orbs(pygame.sprite.Sprite):
+    def __init__ (self, x, y):
+        pygame.sprite.Sprite.__init__(self)
+        self.image = pygame.image.load('img/XP Default.png').convert_alpha()
+        self.rect = self.image.get_rect()
+        self.rect.center = [x, y]
+        self.last_orb = pygame.time.get_ticks()
+        self.text_draw = pygame.time.get_ticks()
+        self.random = random
+        self.state = False
+        self.type = 0
+        self.text = 0
+
+    def update(self):
+        global energy
+        global score
+        global cooldown
+        orb_cooldown = 20000
+        word_time = 600
+        time_now = pygame.time.get_ticks()
+        time_now_text = pygame.time.get_ticks()
+        if not self.state:
+            self.type = random.randint(1,3)
+            self.state = True
+        if self.type == 1:
+            self.image = pygame.image.load('img/XP Energy.png').convert_alpha()
+        elif self.type == 2:
+            self.image = pygame.image.load('img/XP Health.png').convert_alpha()
+        elif self.type == 3:
+            self.image = pygame.image.load('img/XP Shield.png').convert_alpha()
+
+        if time_now - self.last_orb > orb_cooldown - 2000:
+            self.rect.y += 3
+        if time_now - self.last_orb > orb_cooldown:
+            self.last_orb = time_now
+
+        if pygame.sprite.spritecollide(self, spaceship_group, False, pygame.sprite.collide_mask) or pygame.sprite.spritecollide(self, bullet_group, False, pygame.sprite.collide_mask):
+            self.kill()
+            self.state = False
+            orb1 = Orbs(random.randint(300, 1000), random.randint(-70, -40))
+            orb_group.add(orb1)
+            if self.type == 1:
+                if cooldown != 0:
+                    energy = 51
+                    self.text = 1
+                else:
+                    score += 25
+                    self.text = 3
+            if self.type == 2:
+                if spaceship.health_remaining < 5:
+                    spaceship.health_remaining += 1
+                    self.text = 2
+                else:
+                    score += 25
+                    self.text = 3
+            if self.type == 3:
+                sheild = player_sheild(spaceship.rect.x, spaceship.rect.y)
+                player_sheild_group.add(sheild)
+
+        if self.rect.y > screen_height:
+            self.kill()
+            self.state = False
+            orb1 = Orbs(random.randint(300, 1000), random.randint(-70, -40))
+            orb_group.add(orb1)
+
+        if self.text == 1:
+            text = screen_text('Full Energy Bar!', self.rect.x, self.rect.y, 60)
+            text_group.add(text)
+        if self.text == 2:
+            text = screen_text('+1 Health', self.rect.x, self.rect.y, 60)
+            text_group.add(text)
+        if self.text == 3:
+            text = screen_text('+ 25 Score', self.rect.x, self.rect.y, 60)
+            text_group.add(text)
+
+        self.mask = pygame.mask.from_surface(self.image)
+
+class screen_text(pygame.sprite.Sprite):
+    def __init__(self, text, x, y, time):
+        pygame.sprite.Sprite.__init__(self)
+        self.text = text
+        self.x = x
+        self.y = y
+        self.time = time
+
+    def update(self):
+        self.time -= 1
+        draw_text(self.text, font40, 'White', self.x, self.y)
+        if self.time <= 0:
+            self.kill()
+
+
+class player_sheild(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        pygame.sprite.Sprite.__init__(self)
+        self.image = pygame.image.load('img/Sheild.PNG')
+        self.rect = self.image.get_rect()
+        self.rect.center = [x,y]
+
+    def update(self):
+        global create_new_enemy
+        self.rect.x = spaceship.rect.x
+        self.rect.y = spaceship.rect.y -25
+        if pygame.sprite.spritecollide(self, enemy_group, False, pygame.sprite.collide_mask) or pygame.sprite.spritecollide(self, enemy_bullet_group, True, pygame.sprite.collide_mask):
+            self.kill()
+            enemy.health_remaining -= 1
+            if enemy.health_remaining == 0:
+                create_new_enemy = True
+            #if pygame.sprite.spritecollide(self, spaceship_group, False) or pygame.sprite.spritecollide(self, bullet_group, True, pygame.sprite.collide_mask):
+                #self.kill()
+                #spaceship.health_remaining -= 1
+
+
+
+spaceship_group = pygame.sprite.Group()
+bullet_group = pygame.sprite.Group()
+enemy_group = pygame.sprite.Group()
+ui_group = pygame.sprite.Group()
+enemy_bullet_group = pygame.sprite.Group()
+orb_group = pygame.sprite.Group()
+text_group = pygame.sprite.Group()
+player_sheild_group = pygame.sprite.Group()
+
+
+
+orb1 = Orbs(random.randint(300,1000), -50)
+orb_group.add(orb1)
+
+spaceship = Spaceship(screen_width - 1000, screen_height / 2, 5)
+spaceship_group.add(spaceship)
+
+#settings = ui('img/Settings.png', screen_width - 100, 50)
+#ui_group.add(settings)
+
+
+def create_enemy():
+    global create_new_enemy
+    global enemy
+    luck = random.randint(0,100)
+    e_y = random.randint(50,550)
+    if 0 <= luck < 35:
+        e_type = 1
+        health = 1
+    elif 35 <= luck < 60:
+        e_type = 2
+        health = 1
+    elif 60 <= luck < 75:
+        e_type = 3
+        health = 1
+    elif 75 <= luck < 90:
+        e_type = 4
+        health = 2
+    else:
+        e_type = 5
+        health = 1
+    enemy = Enemy(1280, e_y, e_type, health)
+    enemy_group.add(enemy)
+    create_new_enemy = False
+
+def game_close():
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            sys.exit()
+            run = False
+
+
+run = True
+while run:
+    game_close()
+    if not menu:
+        if not game_over:
+            clock.tick(fps)
+            screen.blit(bg, (0, 0))
+            if countdown == 0:
+                energy_bar()
+                if create_new_enemy:
+                    create_enemy()
+
+                spaceship.update()
+                bullet_group.update()
+                enemy_group.update()
+                enemy_bullet_group.update()
+                orb_group.update()
+                text_group.update()
+                player_sheild_group.update()
+                game_close()
+
+
+                draw_text('Score: ' + str(score), font40, 'White', 50,50)
+            if countdown > 0:
+                draw_text('GET READY!', font40, 'White', int(screen_width / 2 - 110), int(screen_height / 2 + 50))
+                draw_text(str(countdown), font40, 'White', int(screen_width / 2 - 10), int(screen_height / 2 + 100))
+                count_timer = pygame.time.get_ticks()
+                if count_timer - last_count > 1000:
+                    countdown -= 1
+                    last_count = count_timer
+
+            spaceship_group.draw(screen)
+            bullet_group.draw(screen)
+            enemy_group.draw(screen)
+            ui_group.draw(screen)
+            enemy_bullet_group.draw(screen)
+            orb_group.draw(screen)
+            player_sheild_group.draw(screen)
+
+
+        elif game_over:
+            draw_text('GAME OVER!', font40, 'White', int(screen_width / 2 - 100), int(screen_height / 2 + 50))
+            try_again = pygame.draw.rect(screen, 'White', (200,520,300,150))
+            high_score_cal(score)
+            draw_text('HIGH SCORE: ' + str(high_score), font40,  'White', int(screen_width / 2 - 125), int(screen_height / 2 - 50))
+            point = pygame.mouse.get_pos()
+            collide = try_again.collidepoint(point)
+            if collide:
+                colour = (255, 0, 0)
+            else:
+                colour = (255, 255, 255)
+            pygame.draw.rect(screen, colour, try_again)
+            draw_text('Try again?', font40, 'Black', 270, 570)
+            for event in pygame.event.get():
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    if collide:
+                        game_over = False
+                        countdown = 4
+                        last_count = 0
+                        spaceship = Spaceship(screen_width - 1000, screen_height / 2, 3)
+                        spaceship_group.add(spaceship)
+                        orb1 = Orbs(random.randint(300, 1000), -50)
+                        orb_group.add(orb1)
+                        score = 0
+                        energy = 0
+                        energy_dis = 0
+                        for sprite in enemy_group:
+                            sprite.kill()
+                        for sprite in enemy_bullet_group:
+                            sprite.kill()
+                        for sprite in bullet_group:
+                            sprite.kill()
+                        for sprite in orb_group:
+                            sprite.kill()
+                        create_enemy()
+    elif menu:
+        screen.fill((105,105,105))
+    ui_group.update()
+    pygame.display.update()
+
+pygame.quit()
